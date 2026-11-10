@@ -72,6 +72,35 @@ impl AmicePass for VmVirtualize {
                 continue;
             }
 
+            // ── JNI 边界函数必须跳过（2026-11-11，本 fork 新增）──────────
+            //
+            // 为什么：AMICE_VM_VIRTUALIZE=true 是【全局开关】，它让每个函数
+            // 的 cfg.enable 都为 true（default_config 直接传给无注解的函数）。
+            // 于是 JNI_OnLoad 也会被 VMP —— 而它由 ART 在 dlopen 完成后
+            // 立即调用，是 JNI 注册链的根。实测后果（真机，nox 锁箱 + VMP）：
+            //   FATAL SIGSEGV / SEGV_ACCERR，tid=DefaultDispatch
+            //   崩溃点在应用启动页加载到一半时（业务代码首次执行）
+            // 同一份代码不开 VMP 则完全正常（进程存活、签名校验通过）。
+            //
+            // 判据：函数名含 JNI_OnLoad / JNI_OnUnload。
+            // 它们是 ART 在 dlopen 完成后按【名字】直接调用的生命周期入口，
+            // 不是普通函数 —— 虚拟化会改变调用约定，ART 那边不知道。
+            //
+            // 注：has_unsupported_function_uses 之所以没拦住 JNI_OnLoad，
+            // 是因为它的地址在这个编译单元内没被显式取用（ART 是运行期
+            // dlsym 找的），静态分析看不到那个 use。
+            {
+                let name = function.get_name().to_string_lossy();
+                // ⚠️ 只排除 JNI_OnLoad / JNI_OnUnload，【不排除 Java_*】。
+                //    Java_* 是 JNI 短名绑定的业务入口，也是我们想 VMP 的目标
+                //    （当前它们因寄存器预算被跳过，但那是另一回事，
+                //    不能在这里一刀切禁掉，否则以后永远没机会）。
+                if name.contains("JNI_OnLoad") || name.contains("JNI_OnUnload") {
+                    debug!("skip JNI lifecycle function: {name:?}");
+                    continue;
+                }
+            }
+
             let cfg = self.parse_function_annotations(module, function)?;
             if !cfg.enable {
                 continue;

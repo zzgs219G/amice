@@ -676,6 +676,31 @@ fn rewrite_as_wrapper<'ctx>(
     // 最终会把 annotation metadata 等剩余 use 指向 wrapper，再删除这个 private body。
     let wrapper = module.add_function(&original_name, fn_type, Some(original_linkage));
     copy_function_attributes(wrapper, original);
+    // 继承原函数的【段归属】：否则原本住在自定义 section 里的函数会被搬到
+    // 默认的 .text，破坏依赖段名的加密方案。
+    //
+    // 为什么需要（本项目实测）：nox 的锁箱（so-section-lock.py）是按段加密的
+    // ——只把名字叫 .ncx 的那一段整段锁成密文。函数一旦被 VMP 换成新 wrapper
+    // 又丢了 section 属性，就会落到 .text 明文段：锁箱照常工作，但对象不在里面了。
+    // 净效果是「抗内存 dump ↑ 但磁盘明文暴露 ↑」，等于拿一个保护换另一个。
+    //
+    // 实测证据（真机产物 libnc.so，v0.1.6-beta.1）：
+    //   nc_mix64 等 5 个函数 VMP 成功，但 .ncx 反而从 40,188 降到 39,444 B，
+    //   而 .text 涨 22KB —— 函数被搬出去了。
+    //
+    // section 在 LLVM 里不是 function attribute（那是 copy_function_attributes
+    // 负责的 AttributeLoc::Function），而是 GlobalObject 的独立字段，
+    // 必须单独 get/set —— 这就是上游漏掉这一行的原因。
+    //
+    // API 形态（inkwell 0.11）：FunctionValue::get_section() -> Option<&CStr>
+    //                          FunctionValue::set_section(Option<&str>)
+    // CStr → &str 用 to_str()（固有方法，不需要 CStr 在作用域内）。
+    // set_section 是 consuming self，但 FunctionValue 是 Copy，wrapper 之后仍可用。
+    if let Some(section) = original.get_section() {
+        if let Some(name) = section.to_str().ok() {
+            wrapper.set_section(Some(name));
+        }
+    }
     wrapper.clear_stale_analysis_attrs_after_cfg_rewrite();
 
     let entry = ctx.append_basic_block(wrapper, "entry");

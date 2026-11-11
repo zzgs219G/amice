@@ -106,6 +106,42 @@ impl AmicePass for VmVirtualize {
                 continue;
             }
 
+            // ── 只处理显式注解的函数（2026-11-11，本 fork 新增）──────────
+            //
+            // 背景：AMICE_VM_VIRTUALIZE=true 是全局开关，default_config.enable
+            // 会传给每个无注解的函数（见 amice-macro/src/lib.rs:151-155），
+            // 于是【所有函数】都成了 VMP 候选 —— 包括第三方库辅助函数、
+            // dex2c 引擎的几十个 helper。实测后果（本项目真机包）：
+            //   只 sigcheck+vmp:              .text 180,836 / 43 个函数
+            //   sigcheck+dex2c+stringenc+vmp: .text 648,176 / 130 个函数
+            // dex2c 引入 87 个辅助函数全被当候选处理，.text 白涨 467KB，
+            // 且应用启动即栈溢出（一堆没必要的 runtime 副本 + 深调用链）。
+            //
+            // 修法：设 AMICE_VM_ONLY_ANNOTATED=1 时，只有函数自身带
+            // annotate("+vm_virtualize") / ("+vmp") 才 virtualize。
+            // 未设该变量时保持上游行为（全局开关 = 全部虚拟化）。
+            //
+            // 为什么用环境变量而不是改默认：保持对上游的兼容 ——
+            // 别人依赖「AMICE_VM_VIRTUALIZE=true 就全量 VMP」这个语义。
+            if std::env::var("AMICE_VM_ONLY_ANNOTATED")
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes"))
+                .unwrap_or(false)
+            {
+                let annotated = module
+                    .read_function_annotate(function)
+                    .map(|exprs| {
+                        let joined = exprs.join(" ");
+                        joined.contains("+vm_virtualize")
+                            || joined.contains("+vmp")
+                            || joined.contains("vm_virtualize=1")
+                            || joined.contains("vm_virtualize=true")
+                    })
+                    .unwrap_or(false);
+                if !annotated {
+                    continue;
+                }
+            }
+
             // 准备阶段只做“可失败但不改模块语义”的工作：profile 校验、LLVM→VM IR lowering、
             // bytecode 编码。只有这些全部成功后才进入真正的 wrapper/runtime 改写。
             match prepare_virtualization(module, function, &cfg) {

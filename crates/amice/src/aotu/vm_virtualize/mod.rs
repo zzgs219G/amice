@@ -1162,7 +1162,44 @@ fn has_unsupported_function_uses(function: FunctionValue<'_>) -> bool {
         let mut use_ref = LLVMGetFirstUse(original);
         while !use_ref.is_null() {
             let user = LLVMGetUser(use_ref);
-            if !is_direct_call_to(user, original) && !reaches_global_annotations(user, 4) {
+            if !is_direct_call_to(user, original) && !reaches_allowed_aggregate(user, 4) {
+                return true;
+            }
+            use_ref = LLVMGetNextUse(use_ref);
+        }
+    }
+    false
+}
+
+/// 允许的聚合引用：`@llvm.global.annotations` 与 `@llvm.used`。
+///
+/// ⚠️ 2026-11-11（本 fork 新增 `@llvm.used`）：上游只豁免 annotations，
+/// 把 `@llvm.used` 也判成 non-call address use 并跳过 VMP。
+///
+/// 但 `@llvm.used` 的语义是【别删除这个符号】，不是【取地址去用】。
+/// clang 在 `__attribute__((used))` / `retain` 时生成这张表，
+/// 目的恰恰是防 `--gc-sections` 回收 —— 与 VMP 完全不冲突。
+///
+/// 实测后果（不豁免时）：项目为了让 VMP 通过，只能删掉 `used`/`retain`，
+/// 结果函数被 `--gc-sections` 边缘化成死代码，`.ncx` 里留下的是没人调用的
+/// 副本，真正执行的是 `.text` 里的另一份 —— 「VMP 报成功但加密段没变化」。
+///
+/// 豁免它之后，`used`/`retain` 可以保留（函数不会被 gc），VMP 也能处理它们。
+fn reaches_allowed_aggregate(value: amice_plugin::inkwell::llvm_sys::prelude::LLVMValueRef, depth: u8) -> bool {
+    // SAFETY: 这里递归遍历从函数 use 可达的 constant/global user。
+    // 深度上限用于避免畸形 IR 中的病态环。
+    unsafe {
+        let name = value_name(value);
+        if name == "llvm.global.annotations" || name == "llvm.used" {
+            return true;
+        }
+        if depth == 0 {
+            return false;
+        }
+
+        let mut use_ref = LLVMGetFirstUse(value);
+        while !use_ref.is_null() {
+            if reaches_allowed_aggregate(LLVMGetUser(use_ref), depth - 1) {
                 return true;
             }
             use_ref = LLVMGetNextUse(use_ref);

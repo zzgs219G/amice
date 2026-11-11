@@ -8099,7 +8099,13 @@ impl<'m, 'ctx, 'profile> FunctionLowerer<'m, 'ctx, 'profile> {
             bail!("{reason}");
         }
         if callee.get_intrinsic_id() != 0 || callee.is_llvm_function() {
-            bail!("LLVM intrinsic calls are not supported by vm_virtualize");
+            // 2026-11-11 诊断增强：把 callee 名字与 intrinsic id 打出来。
+            // 原文案不提"是哪个函数"，排查时只能靠猜（本轮为此多花了几小时）。
+            bail!(
+                "LLVM intrinsic calls are not supported by vm_virtualize (callee={:?}, intrinsic_id={})",
+                callee.get_name().to_string_lossy(),
+                callee.get_intrinsic_id()
+            );
         }
 
         let target = native_call_target_for_direct_call(callee, instruction)?;

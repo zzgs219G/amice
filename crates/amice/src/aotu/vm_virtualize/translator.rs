@@ -8325,10 +8325,16 @@ impl<'m, 'ctx, 'profile> FunctionLowerer<'m, 'ctx, 'profile> {
 
         for (index, value) in args.iter().enumerate() {
             if value.width != target.param_widths[index] {
+                // 2026-11-12 诊断增强：打出全量 args / param_widths / 函数名，
+                // 便于定位是哪一侧算错（原文案只说 index，信息不足）。
                 bail!(
-                    "native call argument {index} width mismatch: value is {}, callee expects {}",
+                    "native call argument {index} width mismatch: value is {}, callee expects {} \
+                     (all args={:?}, all params={:?}, callee={:?})",
                     value.width,
-                    target.param_widths[index]
+                    target.param_widths[index],
+                    args.iter().map(|v| v.width).collect::<Vec<_>>(),
+                    target.param_widths,
+                    target.function.get_name().to_string_lossy()
                 );
             }
         }

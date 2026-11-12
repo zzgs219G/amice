@@ -461,6 +461,10 @@ fn emit_bytecode_global<'ctx>(
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
     module.append_to_compiler_used(global);
+    /* 函数字节码是纯数据 → 可整体加密 */
+    if let Some(sec) = vm_data_section(0) {
+        global.set_section(Some(sec.as_str()));
+    }
     Ok(global)
 }
 
@@ -518,10 +522,26 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
  *   .nct   第二套 VMP（消费方 sigcheck）的【解释器】
  *          可以加密 —— 那些函数在 constructor(65535) 才跑，解锁已完成
  *
- * ⚠️⚠️ 2026-11-13 修正：此前（cef1b02 / a635746 / ae6d415）我用
+ * 四个段的分工（2026-11-13 最终版）：
+ *
+ *   .ncx  业务代码 + VMP 壳     由业务代码自己的 section 属性决定，本文件不管
+ *   .ncq  VM 字节码（纯数据）   AMICE_VM_DATA_SECTION 第 0 节
+ *   .ncs  descriptor / native 表 AMICE_VM_DATA_SECTION 第 1 节（含重定位，必须明文）
+ *   .ncr/ .nct  解释器          AMICE_VM_INSN_SECTION
+ *
+ * 为什么字节码和 descriptor 必须分开（clang 硬约束）：
+ *   descriptor 表里有 R_AARCH64_RELATIVE 重定位，dlopen 时由链接器填真值；
+ *   字节码是纯常量。若两者同段，加密时会把重定位槽一起覆盖 → 垃圾指针。
+ *   2026-11-12 实测：.ncr 内 83 个 RELATIVE 全落在 descriptor 区间。
+ *
+ * 为什么不能把字节码放进 .ncx（clang 硬约束）：
+ *   .ncx 里有函数（AX），const 数据进同名字段报
+ *   `error: 'f' causes a section type conflict with 'tbl'`（实测确认）。
+ *
+ * ⚠️⚠️ 2026-11-13 历史修正：此前（cef1b02 / a635746 / ae6d415）我用
  *    AMICE_VM_DATA_SECTION / AMICE_VM_PTR_SECTION 把【字节码和
- *    descriptor 表】搬进 .ncr/.nct —— 那是错的。字节码应该跟着函数
- *    留在 .ncx 里，锁箱才锁得到它，而不是被抽到独立段。
+ *    descriptor 表】搬进 .ncr/.nct —— 那两个段名后来改作解释器用了，
+ *    语义冲突。现在数据段与解释器段彻底分开，各有自己的环境变量。
  *
  *    实测证据（2026-11-13，按旧方案编出来的产物）：
  *      .ncx  39,116 B  只有 wrapper，没有字节码
@@ -541,6 +561,19 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
  *    自解释的名字等于告诉逆向者"这里是 VM"。
  */
 const VM_INSN_SECTION_ENV: &str = "AMICE_VM_INSN_SECTION";
+/* 数据段：字节码 / descriptor 表 / native 表 / 元数据。
+ *
+ * 为什么要与解释器段分开（硬约束，不能合并）：
+ *   clang 拒绝同名的段里既有函数又有 const 数据 ——
+ *       error: 'f' causes a section type conflict with 'tbl'
+ *   实测确认（2026-11-13）。解释器是代码要 AX，字节码是数据要 A，
+ *   同名即冲突。所以两类必须两个段名。
+ *
+ * 支持逗号分隔的多段名（与 --section 风格一致）：
+ *   AMICE_VM_DATA_SECTION=".ncq,.ncs"
+ *   → 字节码进 .ncq，descriptor/native 表进 .ncs
+ *   （因为后者含 R_AARCH64_RELATIVE 重定位，加密会覆盖链接器填的指针）*/
+const VM_DATA_SECTION_ENV: &str = "AMICE_VM_DATA_SECTION";
 
 /// 读环境变量指定段名；空 / 非法（非 '.' 开头）时返回 None
 /// —— None 表示【不调用 set_section】，保持上游行为（链接器默认落点）。
@@ -562,6 +595,18 @@ fn vm_section_from_env(var: &str) -> Option<String> {
 /// 解释器（dispatch）落哪个段。未配置时返回 None → 不调用 set_section。
 pub(crate) fn vm_insn_section() -> Option<String> {
     vm_section_from_env(VM_INSN_SECTION_ENV)
+}
+
+/// 数据 global 落哪个段。支持按位置取（`idx=0` 是第一节）。
+/// 未配置 / 段数不够时返回 None → 不设段（保持上游默认落点）。
+pub(crate) fn vm_data_section(idx: usize) -> Option<String> {
+    let raw = std::env::var(VM_DATA_SECTION_ENV).ok()?;
+    let name = raw.split(',').map(str::trim).filter(|x| !x.is_empty()).nth(idx)?;
+    if !name.starts_with('.') {
+        log::warn!("{VM_DATA_SECTION_ENV} 第 {} 节 {name:?} 不以 '.' 开头，忽略", idx + 1);
+        return None;
+    }
+    Some(name.to_string())
 }
 
 fn emit_runtime_bytecode_global<'ctx>(
@@ -587,6 +632,10 @@ fn emit_runtime_bytecode_global<'ctx>(
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
     module.append_to_compiler_used(global);
+    /* 模块字节码是纯数据 → 与函数字节码同段 */
+    if let Some(sec) = vm_data_section(0) {
+        global.set_section(Some(sec.as_str()));
+    }
     Ok(global)
 }
 
@@ -620,6 +669,10 @@ fn emit_marker_global<'ctx>(module: &mut Module<'ctx>, safe_name: &str) -> anyho
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
     module.append_to_compiler_used(global);
+    /* 元数据是纯数据 → 与字节码同段 */
+    if let Some(sec) = vm_data_section(0) {
+        global.set_section(Some(sec.as_str()));
+    }
     Ok(global)
 }
 
@@ -657,6 +710,10 @@ fn emit_module_native_call_table<'ctx>(
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
     module.append_to_compiler_used(global);
+    /* native 表是指针数组（含重定位）→ 与 descriptor 同段 */
+    if let Some(sec) = vm_data_section(1) {
+        global.set_section(Some(sec.as_str()));
+    }
     Ok(global)
 }
 
@@ -706,6 +763,10 @@ fn emit_descriptor_table<'ctx>(
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
     module.append_to_compiler_used(global);
+    /* descriptor 表含 R_AARCH64_RELATIVE 重定位 → 必须明文，单独段 */
+    if let Some(sec) = vm_data_section(1) {
+        global.set_section(Some(sec.as_str()));
+    }
     Ok(global)
 }
 

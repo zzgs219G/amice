@@ -508,7 +508,7 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
  *
  * 这次固定用 ".rodata"（与不调 set_section 时的落点相同），
  * 若真机正常 → 是段名问题（A）；若仍崩 → 是 set_section 本身（B）。 */
-const VM_DATA_SECTION: &str = ".rodata";
+const VM_DATA_SECTION: &str = ".rodata.ncr";
 
 fn emit_runtime_bytecode_global<'ctx>(
     module: &mut Module<'ctx>,

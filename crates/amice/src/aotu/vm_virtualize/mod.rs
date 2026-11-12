@@ -460,7 +460,8 @@ fn emit_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    global.set_section(Some(VM_DATA_SECTION));
+    let _data_sec = vm_data_section();
+    global.set_section(Some(_data_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -508,7 +509,62 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
  *
  * 这次固定用 ".rodata"（与不调 set_section 时的落点相同），
  * 若真机正常 → 是段名问题（A）；若仍崩 → 是 set_section 本身（B）。 */
-const VM_DATA_SECTION: &str = ".rodata.ncr";
+/* ── VM 数据的段归属（2026-11-13 重构）───────────────────────────────
+ *
+ * 为什么拆成两类段：
+ *
+ *   `.ncr` 里装 5 类 global，但它们对段属性/重定位的需求完全不同：
+ *
+ *   A. 纯数据（无重定位）——字节码、const_pool、metadata
+ *      可以在文件里是密文，运行期解出来即可。
+ *
+ *   B. 含指针（有 R_AARCH64_RELATIVE 重定位）——descriptor_table、
+ *      native_call_table
+ *      这些位置在文件里是占位符，dlopen 时由动态链接器填真值。
+ *      若整段加密，解锁时写回密文的解密结果会【覆盖掉链接器填好的
+ *      指针】→ 垃圾指针 → 解释器跳错地址 → 真机 SIGILL。
+ *      （2026-11-12 实测：.ncr 内有 83 个 RELATIVE 重定位，全部落在
+ *        descriptor_table 区间 0xc350~0x23548。）
+ *
+ * 所以两类必须分开，且各自可由环境变量指定段名：
+ *
+ *   AMICE_VM_DATA_SECTION   纯数据段，默认 .ncr  （可加密）
+ *   AMICE_VM_PTR_SECTION    指针段，  默认 .ncx 之外的独立可写段
+ *
+ * ⚠️ 段名不带 vm/vmp/amice 字样：段名留在 .shstrtab（strip 删不掉），
+ *    自解释的名字等于告诉逆向者"这里是 VM"。
+ *
+ * ⚠️ 调用 set_section 会把 global 从默认落点挪走。2026-11-12 实测：
+ *    挪到自定义段名（.ncr）时真机 SIGILL，而挪到 .rodata 时正常 ——
+ *    当时的结论是"段名"问题，但后续发现真因是上面的重定位覆盖。
+ *    现在拆开两类后重新验证。
+ */
+const VM_DATA_SECTION_DEFAULT: &str = ".ncr";
+const VM_PTR_SECTION_DEFAULT:  &str = ".ncd";
+
+/// 读环境变量指定段名；空/非法（非 '.' 开头）时回退默认值。
+fn vm_section_from_env(var: &str, default: &str) -> String {
+    match std::env::var(var) {
+        Ok(v) if !v.trim().is_empty() => {
+            let name = v.trim().to_string();
+            if !name.starts_with('.') {
+                log::warn!("{var}={name:?} 不以 '.' 开头，忽略，用默认 {default}");
+                default.to_string()
+            } else {
+                name
+            }
+        }
+        _ => default.to_string(),
+    }
+}
+
+fn vm_data_section() -> String {
+    vm_section_from_env("AMICE_VM_DATA_SECTION", VM_DATA_SECTION_DEFAULT)
+}
+
+fn vm_ptr_section() -> String {
+    vm_section_from_env("AMICE_VM_PTR_SECTION", VM_PTR_SECTION_DEFAULT)
+}
 
 fn emit_runtime_bytecode_global<'ctx>(
     module: &mut Module<'ctx>,
@@ -532,7 +588,8 @@ fn emit_runtime_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    global.set_section(Some(VM_DATA_SECTION));
+    let _data_sec = vm_data_section();
+    global.set_section(Some(_data_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -566,7 +623,8 @@ fn emit_marker_global<'ctx>(module: &mut Module<'ctx>, safe_name: &str) -> anyho
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    global.set_section(Some(VM_DATA_SECTION));
+    let _data_sec = vm_data_section();
+    global.set_section(Some(_data_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -604,7 +662,8 @@ fn emit_module_native_call_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    global.set_section(Some(VM_DATA_SECTION));
+    let _ptr_sec = vm_ptr_section();
+    global.set_section(Some(_ptr_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -654,7 +713,8 @@ fn emit_descriptor_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    global.set_section(Some(VM_DATA_SECTION));
+    let _ptr_sec = vm_ptr_section();
+    global.set_section(Some(_ptr_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }

@@ -460,6 +460,7 @@ fn emit_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -499,6 +500,16 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
     (bytes, placements)
 }
 
+/* 2026-11-12 实验：验证 set_section 行为。
+ *
+ * 目的是区分两件事：
+ *   A. 段名换成 .ncr/.nct（非标准段名）导致崩溃
+ *   B. 调用 set_section 这个动作本身导致崩溃
+ *
+ * 这次固定用 ".rodata"（与不调 set_section 时的落点相同），
+ * 若真机正常 → 是段名问题（A）；若仍崩 → 是 set_section 本身（B）。 */
+const VM_DATA_SECTION: &str = ".rodata";
+
 fn emit_runtime_bytecode_global<'ctx>(
     module: &mut Module<'ctx>,
     group_suffix: &str,
@@ -521,6 +532,7 @@ fn emit_runtime_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -554,6 +566,7 @@ fn emit_marker_global<'ctx>(module: &mut Module<'ctx>, safe_name: &str) -> anyho
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -591,6 +604,7 @@ fn emit_module_native_call_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -640,6 +654,7 @@ fn emit_descriptor_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }

@@ -518,7 +518,21 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
  *    让链接器把整个 LOAD 段标成可写，Android 14+ 还可能因为 W^X 拒载。
  *    这里只靠 section 属性，链接器自会生成合适的 flags。
  */
-const VM_DATA_SECTION: &str = ".ncr";
+/* ⚠️⚠️ 段名必须用 LLVM 认识的只读段前缀 `.rodata.`！
+ *
+ * 2026-11-12 实测：用裸 `.ncr` / `.nct` 时，链接器给的段属性是 **WA**
+ * （可写 + 可分配），而 `.rodata` 是 **A**（只读）。
+ * 结果真机 dlopen 即 SIGILL（libnc.so+0x82ad8，.ncx 段内），
+ * 且与是否加密无关 —— 不加密也照样崩。
+ *
+ * 说明 Amice 生成的代码对这些 global 的段属性有隐含假设（它们应当是
+ * 只读数据）。加 `.rodata.` 前缀后 LLVM 按只读规则处理，属性与原来
+ * 落在 `.rodata` 时一致。
+ *
+ * 段名仍然不带 vm/vmp/amice 字样（理由见下），`.rodata.` 前缀本身
+ * 是编译器常见形态（`.rodata.str1.1`、`.rodata.cst16` 等），不显眼。
+ */
+const VM_DATA_SECTION: &str = ".rodata.ncr";
 
 /// VM 数据的段名，可由环境变量覆盖（2026-11-12）。
 ///

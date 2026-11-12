@@ -460,8 +460,6 @@ fn emit_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    let _vm_sec = vm_data_section();
-    global.set_section(Some(_vm_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -501,75 +499,6 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
     (bytes, placements)
 }
 
-/* ── VM 数据的段归属（2026-11-12）────────────────────────────────────
- *
- * 为什么需要：VMP 生成的字节码 / descriptor 表 / native 调用表此前都没有
- * 指定段，链接器按约定全部落进 `.rodata`，与普通的字符串常量、opcode 表
- * 混在一起。后果是：
- *   ① 无法从产物判断"VMP 到底有没有生效、占多大"——只能靠统计 .rodata
- *      的高熵块，而高熵判据在有压缩/随机数据时会误判。
- *   ② 无法对 VMP 数据单独做保护（比如整体加密）。
- *
- * ⚠️ 段名刻意不带 "vm" / "vmp" / "amice" 字样 —— 段名会留在 .shstrtab 里
- *    （strip 删不掉），起个自解释的名字等于直接告诉逆向者"这里是 VM"。
- *    `.ncr` 与 nox 的 .ncx/.ncxh/.ncxr 同族，看起来只是又一个只读数据段。
- *
- * ⚠️ 用 SHF_ALLOC + SHF_WRITE？不用。VMP 数据是只读的，落进 AWR 段会
- *    让链接器把整个 LOAD 段标成可写，Android 14+ 还可能因为 W^X 拒载。
- *    这里只靠 section 属性，链接器自会生成合适的 flags。
- */
-/* ⚠️⚠️ 段名必须用 LLVM 认识的只读段前缀 `.rodata.`！
- *
- * 2026-11-12 实测：用裸 `.ncr` / `.nct` 时，链接器给的段属性是 **WA**
- * （可写 + 可分配），而 `.rodata` 是 **A**（只读）。
- * 结果真机 dlopen 即 SIGILL（libnc.so+0x82ad8，.ncx 段内），
- * 且与是否加密无关 —— 不加密也照样崩。
- *
- * 说明 Amice 生成的代码对这些 global 的段属性有隐含假设（它们应当是
- * 只读数据）。加 `.rodata.` 前缀后 LLVM 按只读规则处理，属性与原来
- * 落在 `.rodata` 时一致。
- *
- * 段名仍然不带 vm/vmp/amice 字样（理由见下），`.rodata.` 前缀本身
- * 是编译器常见形态（`.rodata.str1.1`、`.rodata.cst16` 等），不显眼。
- */
-const VM_DATA_SECTION: &str = ".rodata.ncr";
-
-/// VM 数据的段名，可由环境变量覆盖（2026-11-12）。
-///
-/// 为什么需要可配置：一个 APK 里可能有两套互不相干的 VMP ——
-///   · nox 的锁箱解密链（在预编译的 libnox.a 里，先于任何解密运行）
-///   · 消费方的业务逻辑（如 sig_check，在解锁【之后】才运行）
-///
-/// 前者**必须明文**：解 .ncr 的钥匙派生要执行 .ncr 里的函数，
-/// 加密即自锁（详见 .ncr 那条注释）。后者的 VMP 数据可以加密 ——
-/// 它要等解锁完成才被使用，没有循环依赖。
-///
-/// 分开成两个段才能对其中一段单独开锁箱。若共用 .ncr，只能整段
-/// 明文或整段加密，没有中间地带。
-///
-/// 用法：
-///   AMICE_VM_DATA_SECTION=".nct" clang ...   ← 消费方编译时设
-///   不设 → 默认 .ncr
-///
-/// ⚠️ 段名同样不带 vm/vmp/amice 字样，理由同下面那条注释。
-pub(crate) fn vm_data_section() -> String {
-    match std::env::var("AMICE_VM_DATA_SECTION") {
-        Ok(v) if !v.trim().is_empty() => {
-            let name = v.trim().to_string();
-            // 段名必须以 '.' 开头，否则 llvm 的 set_section 会当普通名字处理
-            if !name.starts_with('.') {
-                log::warn!(
-                    "AMICE_VM_DATA_SECTION={name:?} 不以 '.' 开头，忽略，用默认 {VM_DATA_SECTION}"
-                );
-                VM_DATA_SECTION.to_string()
-            } else {
-                name
-            }
-        }
-        _ => VM_DATA_SECTION.to_string(),
-    }
-}
-
 fn emit_runtime_bytecode_global<'ctx>(
     module: &mut Module<'ctx>,
     group_suffix: &str,
@@ -592,8 +521,6 @@ fn emit_runtime_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    let _vm_sec = vm_data_section();
-    global.set_section(Some(_vm_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -627,8 +554,6 @@ fn emit_marker_global<'ctx>(module: &mut Module<'ctx>, safe_name: &str) -> anyho
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    let _vm_sec = vm_data_section();
-    global.set_section(Some(_vm_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -666,8 +591,6 @@ fn emit_module_native_call_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    let _vm_sec = vm_data_section();
-    global.set_section(Some(_vm_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -717,8 +640,6 @@ fn emit_descriptor_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
-    let _vm_sec = vm_data_section();
-    global.set_section(Some(_vm_sec.as_str()));
     module.append_to_compiler_used(global);
     Ok(global)
 }

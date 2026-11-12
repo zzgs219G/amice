@@ -460,6 +460,7 @@ fn emit_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -499,6 +500,25 @@ fn module_runtime_bytecode_blob(prepared: &[PreparedVirtualization<'_>]) -> (Vec
     (bytes, placements)
 }
 
+/* ── VM 数据的段归属（2026-11-12）────────────────────────────────────
+ *
+ * 为什么需要：VMP 生成的字节码 / descriptor 表 / native 调用表此前都没有
+ * 指定段，链接器按约定全部落进 `.rodata`，与普通的字符串常量、opcode 表
+ * 混在一起。后果是：
+ *   ① 无法从产物判断"VMP 到底有没有生效、占多大"——只能靠统计 .rodata
+ *      的高熵块，而高熵判据在有压缩/随机数据时会误判。
+ *   ② 无法对 VMP 数据单独做保护（比如整体加密）。
+ *
+ * ⚠️ 段名刻意不带 "vm" / "vmp" / "amice" 字样 —— 段名会留在 .shstrtab 里
+ *    （strip 删不掉），起个自解释的名字等于直接告诉逆向者"这里是 VM"。
+ *    `.ncr` 与 nox 的 .ncx/.ncxh/.ncxr 同族，看起来只是又一个只读数据段。
+ *
+ * ⚠️ 用 SHF_ALLOC + SHF_WRITE？不用。VMP 数据是只读的，落进 AWR 段会
+ *    让链接器把整个 LOAD 段标成可写，Android 14+ 还可能因为 W^X 拒载。
+ *    这里只靠 section 属性，链接器自会生成合适的 flags。
+ */
+const VM_DATA_SECTION: &str = ".ncr";
+
 fn emit_runtime_bytecode_global<'ctx>(
     module: &mut Module<'ctx>,
     group_suffix: &str,
@@ -521,6 +541,7 @@ fn emit_runtime_bytecode_global<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -554,6 +575,7 @@ fn emit_marker_global<'ctx>(module: &mut Module<'ctx>, safe_name: &str) -> anyho
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -591,6 +613,7 @@ fn emit_module_native_call_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }
@@ -640,6 +663,7 @@ fn emit_descriptor_table<'ctx>(
     global.set_initializer(&array);
     global.set_constant(true);
     global.set_linkage(Linkage::Private);
+    global.set_section(Some(VM_DATA_SECTION));
     module.append_to_compiler_used(global);
     Ok(global)
 }

@@ -221,6 +221,32 @@ fn add_private_runtime_function<'ctx>(
     let function = module.add_function(name, fn_type, Some(Linkage::Private));
     function.as_global_value().set_unnamed_address(UnnamedAddress::Global);
 
+    /* ── 解释器段归属（2026-11-13）────────────────────────────────────
+     *
+     * 只给【独立成形的解释器函数】指定段，即 inline_policy == Normal 的
+     * dispatch。Always 的那些是读 descriptor / 解码字节码的机械片段，
+     * 会被 alwaysinline 折进 dispatcher —— 给它们指定段没有意义
+     * （内联后函数本体消失，set_section 也跟着失效）。
+     *
+     * 为什么需要这一步（用户需求）：
+     *   段布局应该是
+     *     .ncx  业务代码被 VMP 后的【字节码 + wrapper】
+     *     .ncr  第一套 VMP 的【解释器】（明文）
+     *     .nct  第二套 VMP 的【解释器】（加密）
+     *   而在此之前 runtime.rs 里 set_section 出现 0 次 —— 解释器从来没被
+     *   指定过段，链接器按默认把它丢进 .text。于是 .ncr/.nct 只剩数据，
+     *   锁箱也就锁不到解释器。
+     *
+     * ⚠️ 该段必须是【可执行】的（SHF_EXECINSTR）。解释器是代码，只读数据段
+     *    执行即 SIGSEGV。调用方（构建脚本）负责把段名指到 AX 段上。
+     * ⚠️ 段名不给默认值时不设段，保持上游行为 —— 只有显式配置才搬。
+     */
+    if matches!(inline_policy, RuntimeInlinePolicy::Normal) {
+        if let Some(sec) = crate::aotu::vm_virtualize::vm_insn_section() {
+            function.as_global_value().set_section(Some(sec.as_str()));
+        }
+    }
+
     if matches!(inline_policy, RuntimeInlinePolicy::Always) {
         // reader helper 是 runtime 的机械解码片段，暴露成独立符号只会让 IDA 里多出
         // `amice_vm_read_*` 这类可读入口；交给后续 always-inline pass 尽量折进 dispatcher。

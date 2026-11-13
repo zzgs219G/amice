@@ -1,6 +1,6 @@
 use crate::config::{Config, ShuffleBlocksConfig, ShuffleBlocksFlags};
 use crate::pass_registry::{AmiceFunctionPass, AmicePass, AmicePassFlag};
-use amice_llvm::inkwell2::FunctionExt;
+use amice_llvm::inkwell2::{FunctionExt, ModuleExt};
 use amice_macro::amice;
 use amice_plugin::PreservedAnalyses;
 use amice_plugin::inkwell::module::Module;
@@ -25,6 +25,27 @@ impl AmicePass for ShuffleBlocks {
         let mut executed = false;
         for function in module.get_functions() {
             if function.is_inline_marked() || function.is_llvm_function() || function.is_undef_function() {
+                continue;
+            }
+
+            // 标了 VMP 的函数不上混淆（2026-11-14 本 fork 新增）。
+            // 语义是【互斥而非叠加】：每函数只吃一层最强保护。
+            // 必须跳过，否则弱混淆会破坏 VMP 的 CFG 识别（详见 mba/mod.rs 同段注释）。
+            if module
+                .read_function_annotate(function)
+                .map(|e| {
+                    let j = e.join(" ");
+                    j.contains("+vm_virtualize")
+                        || j.contains("+vmp")
+                        || j.contains("vm_virtualize=1")
+                        || j.contains("vm_virtualize=true")
+                })
+                .unwrap_or(false)
+            {
+                log::info!(
+                    "[amice] skip ShuffleBlocks for VMP function: {:?}",
+                    function.get_name()
+                );
                 continue;
             }
 

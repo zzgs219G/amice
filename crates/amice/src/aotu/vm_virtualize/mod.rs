@@ -150,7 +150,24 @@ impl AmicePass for VmVirtualize {
                     changed = true;
                 },
                 Err(err) => {
-                    debug!("skip function {:?}: {err:#}", function.get_name());
+                    // 为什么从 debug! 提到 info!（2026-11-14 本 fork 新增）：
+                    //
+                    // 此前被 VMP 跳过的函数在 CI 日志里【完全看不到】——
+                    // debug 级默认不输出。后果是"以为 VMP 保护了，实际漏了"：
+                    // 实测 dex2c 的 4 个业务方法全部因寄存器预算被跳过，
+                    // 构建全绿、产物正常，只有读源码的人知道它们没被保护。
+                    //
+                    // 现在打到 info 级，构建日志里能直接 grep 出完整清单：
+                    //     [amice] VMP skipped: Java_xxx_onCreate (function has ...)
+                    // 让 AI 和人都【不用反汇编产物】就能判断哪些函数没有保护，
+                    // 也便于统计"VMP 实际生效 N 个 / 跳过 M 个"。
+                    //
+                    // ⚠️ 用 info 而非 warn：跳过是预期行为（不是异常），
+                    //    用 warn 会让正常构建看起来有问题。
+                    log::info!(
+                        "[amice] VMP skipped: {:?} ({err:#})",
+                        function.get_name()
+                    );
                 },
             }
         }

@@ -1,7 +1,7 @@
 use crate::config::{Config, IndirectBranchConfig, IndirectBranchFlags};
 use crate::pass_registry::{AmiceFunctionPass, AmicePass, AmicePassFlag};
 use amice_llvm::const_array;
-use amice_llvm::inkwell2::{BasicBlockExt, BuilderExt, FunctionExt, InstructionExt, is_branch_opcode};
+use amice_llvm::inkwell2::{BasicBlockExt, BuilderExt, FunctionExt, InstructionExt, ModuleExt, is_branch_opcode};
 use amice_llvm::ptr_type;
 use amice_macro::amice;
 use amice_plugin::inkwell::basic_block::BasicBlock;
@@ -47,6 +47,27 @@ impl AmicePass for IndirectBranch {
         let mut functions = Vec::new();
         for x in module.get_functions() {
             if x.is_llvm_function() || x.is_undef_function() {
+                continue;
+            }
+
+            // 标了 VMP 的函数不上混淆（2026-11-14 本 fork 新增）。
+            // 语义是【互斥而非叠加】：每函数只吃一层最强保护。
+            // 必须跳过，否则弱混淆会破坏 VMP 的 CFG 识别（详见 mba/mod.rs 同段注释）。
+            if module
+                .read_function_annotate(x)
+                .map(|e| {
+                    let j = e.join(" ");
+                    j.contains("+vm_virtualize")
+                        || j.contains("+vmp")
+                        || j.contains("vm_virtualize=1")
+                        || j.contains("vm_virtualize=true")
+                })
+                .unwrap_or(false)
+            {
+                log::info!(
+                    "[amice] skip IndirectBranch for VMP function: {:?}",
+                    x.get_name()
+                );
                 continue;
             }
 

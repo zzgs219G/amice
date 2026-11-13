@@ -49,6 +49,27 @@ impl AmicePass for IndirectCall {
                 continue;
             }
 
+            // 标了 VMP 的函数不上混淆（2026-11-14 本 fork 新增）。
+            // 语义是【互斥而非叠加】：每函数只吃一层最强保护。
+            // 必须跳过，否则弱混淆会破坏 VMP 的 CFG 识别（详见 mba/mod.rs 同段注释）。
+            if module
+                .read_function_annotate(function)
+                .map(|e| {
+                    let j = e.join(" ");
+                    j.contains("+vm_virtualize")
+                        || j.contains("+vmp")
+                        || j.contains("vm_virtualize=1")
+                        || j.contains("vm_virtualize=true")
+                })
+                .unwrap_or(false)
+            {
+                log::info!(
+                    "[amice] skip IndirectCall for VMP function: {:?}",
+                    function.get_name()
+                );
+                continue;
+            }
+
             let cfg = self.parse_function_annotations(module, function)?;
             if !cfg.enable {
                 continue;

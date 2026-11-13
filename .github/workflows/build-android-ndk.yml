@@ -1,5 +1,24 @@
 name: Linux/macOS Build For Android NDK
 
+# ═══════════════════════════════════════════════════════════════════
+# ⚠️ 日常禁止全量构建：push master 不要跑多平台多版本
+#
+# 背景（2026-11-14）：改了 7 个 .rs 就触发 4 个平台 workflow（Android NDK
+#   r27d/r28c/r29/r30 × 多 LLVM 版本 + linux-arm64 + linux-x64 + macos-arm64），
+#   一次 push 烧掉大量 runner 时间，真正要看的编译错误却只要一个平台就够了。
+#
+# 规则：
+#   · 改完代码要验证编译 → 只手动跑【一个】平台的一个版本：
+#       gh workflow run build-android-ndk.yml -f ...   （或只跑 ubuntu 那个 job）
+#   · 本文件保留 push 触发是为了「合并前兜底」，但日常开发请用 PR，
+#     或临时把下面的 paths 收窄到你确定要跑的范围再 push。
+#   · 真正需要全平台的时机：发版（打 tag → release.yml）、改 LLVM 相关代码、
+#     改 cpp/ 或 runtime 层。纯业务逻辑改动不需要。
+#
+# 若本平台的构建常年不需要，直接注释掉 push 触发器、只留 workflow_dispatch，
+# 把它变成「按需手动跑」—— 比每次 push 都白跑更诚实。
+# ═══════════════════════════════════════════════════════════════════
+
 on:
   push:
     branches: [ master ]

@@ -77,10 +77,7 @@ impl AmicePass for IndirectCall {
                 })
                 .unwrap_or(false)
             {
-                log::info!(
-                    "[amice] skip IndirectCall for VMP function: {:?}",
-                    function.get_name()
-                );
+                log::info!("[amice] skip IndirectCall for VMP function: {:?}", function.get_name());
                 continue;
             }
 

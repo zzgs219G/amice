@@ -56,10 +56,7 @@ impl AmicePass for ShuffleBlocks {
                 })
                 .unwrap_or(false)
             {
-                log::info!(
-                    "[amice] skip ShuffleBlocks for VMP function: {:?}",
-                    function.get_name()
-                );
+                log::info!("[amice] skip ShuffleBlocks for VMP function: {:?}", function.get_name());
                 continue;
             }
 

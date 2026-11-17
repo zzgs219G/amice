@@ -78,10 +78,7 @@ impl AmicePass for IndirectBranch {
                 })
                 .unwrap_or(false)
             {
-                log::info!(
-                    "[amice] skip IndirectBranch for VMP function: {:?}",
-                    x.get_name()
-                );
+                log::info!("[amice] skip IndirectBranch for VMP function: {:?}", x.get_name());
                 continue;
             }
 

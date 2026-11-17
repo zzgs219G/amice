@@ -69,10 +69,7 @@ impl AmicePass for Flatten {
                 })
                 .unwrap_or(false)
             {
-                log::info!(
-                    "[amice] skip Flatten for VMP function: {:?}",
-                    x.get_name()
-                );
+                log::info!("[amice] skip Flatten for VMP function: {:?}", x.get_name());
                 continue;
             }
 

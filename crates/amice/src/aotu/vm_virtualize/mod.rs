@@ -164,10 +164,7 @@ impl AmicePass for VmVirtualize {
                     //
                     // ⚠️ 用 info 而非 warn：跳过是预期行为（不是异常），
                     //    用 warn 会让正常构建看起来有问题。
-                    log::info!(
-                        "[amice] VMP skipped: {:?} ({err:#})",
-                        function.get_name()
-                    );
+                    log::info!("[amice] VMP skipped: {:?} ({err:#})", function.get_name());
                 },
             }
         }
@@ -604,7 +601,7 @@ fn vm_section_from_env(var: &str) -> Option<String> {
             } else {
                 Some(name)
             }
-        }
+        },
         _ => None,
     }
 }

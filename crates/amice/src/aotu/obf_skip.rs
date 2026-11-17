@@ -41,8 +41,7 @@ pub const DEFAULT_SKIP_SECTIONS: &str = ".ncx";
 fn skip_list() -> &'static Vec<String> {
     static LIST: OnceLock<Vec<String>> = OnceLock::new();
     LIST.get_or_init(|| {
-        let raw = std::env::var("AMICE_OBF_SKIP_SECTIONS")
-            .unwrap_or_else(|_| DEFAULT_SKIP_SECTIONS.to_string());
+        let raw = std::env::var("AMICE_OBF_SKIP_SECTIONS").unwrap_or_else(|_| DEFAULT_SKIP_SECTIONS.to_string());
         raw.split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -66,10 +65,7 @@ fn skip_list() -> &'static Vec<String> {
 ///    （当前是 "+no_obf"）。
 /// ⚠️ 读 annotate 需要 &mut Module，所以本函数要 module 参数。
 ///    各 pass 在循环前已快照函数列表（Vec<FunctionValue>），可安全传入。
-pub fn should_skip(
-    function: FunctionValue<'_>,
-    module: &mut amice_plugin::inkwell::module::Module<'_>,
-) -> bool {
+pub fn should_skip(function: FunctionValue<'_>, module: &mut amice_plugin::inkwell::module::Module<'_>) -> bool {
     // ① 段名判据（快，先查）
     let list = skip_list();
     if !list.is_empty() {

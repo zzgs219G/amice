@@ -102,10 +102,7 @@ impl AmicePass for VmFlatten {
                 })
                 .unwrap_or(false)
             {
-                log::info!(
-                    "[amice] skip VmFlatten for VMP function: {:?}",
-                    function.get_name()
-                );
+                log::info!("[amice] skip VmFlatten for VMP function: {:?}", function.get_name());
                 continue;
             }
 

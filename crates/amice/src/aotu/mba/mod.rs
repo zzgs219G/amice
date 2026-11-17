@@ -78,10 +78,7 @@ impl AmicePass for Mba {
                 })
                 .unwrap_or(false);
             if vmp_target {
-                log::info!(
-                    "[amice] skip Mba for VMP function: {:?}",
-                    function.get_name()
-                );
+                log::info!("[amice] skip Mba for VMP function: {:?}", function.get_name());
                 continue;
             }
 

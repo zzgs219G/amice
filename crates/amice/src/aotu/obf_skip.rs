@@ -32,6 +32,7 @@
 //! 由环境变量 `AMICE_OBF_SKIP_SECTIONS` 指定要排除的段（逗号分隔），
 //! 默认 `.ncx`。留空 = 恢复旧行为（对所有段都混淆）。
 
+use amice_llvm::inkwell2::ModuleExt;   // read_function_annotate 来自这个 trait
 use amice_plugin::inkwell::values::{FunctionValue, GlobalValue};
 use std::sync::OnceLock;
 

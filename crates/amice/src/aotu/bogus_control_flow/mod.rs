@@ -4,7 +4,7 @@ mod region;
 
 use crate::config::{BogusControlFlowConfig, Config};
 use crate::pass_registry::{AmiceFunctionPass, AmicePass, AmicePassFlag};
-use amice_llvm::inkwell2::{FunctionExt, InstructionExt};
+use amice_llvm::inkwell2::{FunctionExt, InstructionExt, ModuleExt};  // ModuleExt: read_function_annotate
 use amice_macro::amice;
 use amice_plugin::PreservedAnalyses;
 use amice_plugin::inkwell::comdat::ComdatSelectionKind;

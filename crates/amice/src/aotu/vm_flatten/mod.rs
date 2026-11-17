@@ -57,8 +57,47 @@ impl AmicePass for VmFlatten {
 
     fn do_pass(&self, module: &mut Module<'_>) -> anyhow::Result<PreservedAnalyses> {
         let mut has_executed = false;
-        for function in module.get_functions() {
-            if function.is_undef_function() || function.is_llvm_function() {
+        // 先快照函数列表：循环内要 &mut 调 read_function_annotate，
+        // 与 get_functions() 的借用冲突（mba/mod.rs、vm_virtualize/mod.rs 同此做法）。
+        let functions = module
+            .get_functions()
+            .into_iter()
+            .filter(|f| !f.is_undef_function() && !f.is_llvm_function())
+            .collect::<Vec<_>>();
+
+        for function in functions {
+            // 标了 VMP 的函数不上 vm_flatten（2026-11-17 本 fork 新增）。
+            //
+            // 别的混淆 pass（Mba/Flatten/IndirectCall/IndirectBranch/
+            // ShuffleBlocks/SplitBasicBlock）早在 2026-11-14 就加了这段白名单，
+            // 只有 VmFlatten 漏了 —— 而它恰恰是最要命的那个：
+            // 本 pass priority=960 > VmVirtualize 的 955，先跑；
+            // 把 CFG 换成状态机后，VmVirtualize 拿到的就是扁平化后的控制流
+            // → 寄存器压力爆掉（实测 values=15 temps=5 vregs=32 free=0）
+            // → 整函数 "VM x-register budget exceeded" 跳过。
+            //
+            // 实测后果（artifact-pipeline run 44082797350）：13 个 VMP 目标
+            // 全部跳过，.nct/.ncv/.ncw 三个段都不生成，第二套 VMP 整个消失。
+            //
+            // ⚠️ 这里的白名单只是【兜底】：VmFlatten 的 flag 含 FullLtoLast、
+            //    VmVirtualize 是 OptimizerLast，两者在不同 pipeline 阶段，
+            //    仅靠本处跳过无法彻底消除冲突。真正的修复在调用方
+            //    （artifact-pipeline 的 protect.sh 让 vm_flatten 与 VMP 二选一）。
+            if module
+                .read_function_annotate(function)
+                .map(|e| {
+                    let j = e.join(" ");
+                    j.contains("+vm_virtualize")
+                        || j.contains("+vmp")
+                        || j.contains("vm_virtualize=1")
+                        || j.contains("vm_virtualize=true")
+                })
+                .unwrap_or(false)
+            {
+                log::info!(
+                    "[amice] skip VmFlatten for VMP function: {:?}",
+                    function.get_name()
+                );
                 continue;
             }
 

@@ -43,6 +43,13 @@ impl AmicePass for Mba {
                 continue;
             }
 
+            // 段级排除（2026-11-18）：`.ncx` 是锁箱后的密文段，混淆只会
+            // 线性增加 APK 体积而收益为零。详见 aotu/obf_skip.rs 的完整数据。
+            if super::obf_skip::in_obf_skip_section(function) {
+                super::obf_skip::log_skip("Mba", function);
+                continue;
+            }
+
             // ── 标了 VMP 的函数不上混淆（2026-11-14 本 fork 新增）─────────
             //
             // 语义是【互斥而非叠加】：每个函数只吃一层最强的保护。

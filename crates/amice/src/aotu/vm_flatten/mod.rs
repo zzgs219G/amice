@@ -66,6 +66,13 @@ impl AmicePass for VmFlatten {
             .collect::<Vec<_>>();
 
         for function in functions {
+            // 段级排除（2026-11-18）：`.ncx` 是密文段，混淆线性增体积、收益为零。
+            // 数据与论证见 aotu/obf_skip.rs。
+            if super::obf_skip::in_obf_skip_section(function) {
+                super::obf_skip::log_skip("VmFlatten", function);
+                continue;
+            }
+
             // 标了 VMP 的函数不上 vm_flatten（2026-11-17 本 fork 新增）。
             //
             // 别的混淆 pass（Mba/Flatten/IndirectCall/IndirectBranch/

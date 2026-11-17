@@ -40,6 +40,13 @@ impl AmicePass for Flatten {
                 continue;
             }
 
+            // 段级排除（2026-11-18）：`.ncx` 是密文段，混淆线性增体积、收益为零。
+            // 数据与论证见 aotu/obf_skip.rs。
+            if super::obf_skip::in_obf_skip_section(x) {
+                super::obf_skip::log_skip("Flatten", x);
+                continue;
+            }
+
             // 标了 VMP 的函数不上混淆（2026-11-14 本 fork 新增）。
             // 语义是【互斥而非叠加】：每函数只吃一层最强保护。
             // 必须跳过，否则弱混淆会破坏 VMP 的 CFG 识别（详见 mba/mod.rs 同段注释）。

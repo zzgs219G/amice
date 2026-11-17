@@ -67,9 +67,9 @@ fn skip_list() -> &'static Vec<String> {
 ///    （当前是 "+no_obf"）。
 /// ⚠️ 读 annotate 需要 &mut Module，所以本函数要 module 参数。
 ///    各 pass 在循环前已快照函数列表（Vec<FunctionValue>），可安全传入。
-pub fn should_skip(
-    function: FunctionValue<'_>,
-    module: &mut amice_plugin::inkwell::module::Module<'_>,
+pub fn should_skip<'a>(
+    function: FunctionValue<'a>,
+    module: &mut amice_plugin::inkwell::module::Module<'a>,
 ) -> bool {
     // ① 段名判据（快，先查）
     let list = skip_list();

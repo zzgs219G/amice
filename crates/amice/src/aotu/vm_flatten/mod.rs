@@ -66,9 +66,10 @@ impl AmicePass for VmFlatten {
             .collect::<Vec<_>>();
 
         for function in functions {
-            // 段级排除（2026-11-18）：`.ncx` 是密文段，混淆线性增体积、收益为零。
+            // 跳过混淆（2026-11-18）：段名判据（.ncx 密文段）+ annotate 判据
+            // （+no_obf，用于让 dex2c 产物留在 .text 而不留段名特征）。
             // 数据与论证见 aotu/obf_skip.rs。
-            if super::obf_skip::in_obf_skip_section(function) {
+            if super::obf_skip::should_skip(function, module) {
                 super::obf_skip::log_skip("VmFlatten", function);
                 continue;
             }

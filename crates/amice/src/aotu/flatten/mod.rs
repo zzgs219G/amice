@@ -35,14 +35,22 @@ impl AmicePass for Flatten {
 
     fn do_pass(&self, module: &mut Module<'_>) -> anyhow::Result<PreservedAnalyses> {
         let mut functions = Vec::new();
-        for x in module.get_functions() {
+        // 先快照：循环内要 &mut 调 should_skip（读 annotate 需要 &mut Module），
+        // 与 get_functions() 的借用冲突（mba/mod.rs 同此做法）。
+        let _fns = module
+            .get_functions()
+            .into_iter()
+            .filter(|f| !f.is_llvm_function() && !f.is_undef_function())
+            .collect::<Vec<_>>();
+        for x in _fns {
             if x.is_llvm_function() || x.is_undef_function() {
                 continue;
             }
 
-            // 段级排除（2026-11-18）：`.ncx` 是密文段，混淆线性增体积、收益为零。
+            // 跳过混淆（2026-11-18）：段名判据（.ncx 密文段）+ annotate 判据
+            // （+no_obf，用于让 dex2c 产物留在 .text 而不留段名特征）。
             // 数据与论证见 aotu/obf_skip.rs。
-            if super::obf_skip::in_obf_skip_section(x) {
+            if super::obf_skip::should_skip(x, module) {
                 super::obf_skip::log_skip("Flatten", x);
                 continue;
             }

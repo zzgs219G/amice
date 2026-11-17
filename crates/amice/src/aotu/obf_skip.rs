@@ -50,25 +50,46 @@ fn skip_list() -> &'static Vec<String> {
     })
 }
 
-/// 该函数是否位于"不参与混淆"的段。
+/// 该函数是否应跳过混淆（统一入口）。
 ///
-/// ⚠️ section 在 LLVM 里是 GlobalObject 的独立字段，不是 function attribute，
-///    必须用 `get_section()` 读（与 `vm_virtualize/mod.rs` 里 `set_section`
-///    的用法同源）。
-/// ⚠️ 无 section 属性 = 默认 `.text`，返回 false（照常混淆）。
-pub fn in_obf_skip_section(function: FunctionValue<'_>) -> bool {
+/// 两个判据，任一命中即跳过：
+///   ① 段名在 AMICE_OBF_SKIP_SECTIONS 里（默认 .ncx —— 密文段，混淆只会
+///      线性增加不可压缩体积）
+///   ② 函数带 annotate("+no_obf")（2026-11-18 新增）
+///
+/// 为什么需要 ②：段名本身就是情报。给 dex2c 产物取专属段名（如 .d2c），
+/// 逆向者 `readelf -S` 一眼看到「这个段是 dex2c 产物，重点看这」。
+/// 改用 annotate 后，产物【留在 .text】与 150+ 个函数混在一起，
+/// 段结构上零特征 —— readelf 看不出任何区别。
+///
+/// ⚠️ 注解值必须与 protect.sh 传给 so_section_mark.py 的 --annotate 一致
+///    （当前是 "+no_obf"）。
+/// ⚠️ 读 annotate 需要 &mut Module，所以本函数要 module 参数。
+///    各 pass 在循环前已快照函数列表（Vec<FunctionValue>），可安全传入。
+pub fn should_skip(
+    function: FunctionValue<'_>,
+    module: &mut amice_plugin::inkwell::module::Module<'_>,
+) -> bool {
+    // ① 段名判据（快，先查）
     let list = skip_list();
-    if list.is_empty() {
-        return false;
+    if !list.is_empty() {
+        if let Some(section) = function.get_section() {
+            if let Ok(name) = section.to_str() {
+                let name = name.trim();
+                if list.iter().any(|s| s == name) {
+                    return true;
+                }
+            }
+        }
     }
-    let Some(section) = function.get_section() else {
-        return false; // 默认段（.text），不排除
-    };
-    let Ok(name) = section.to_str() else {
-        return false;
-    };
-    let name = name.trim();
-    list.iter().any(|s| s == name)
+    // ② annotate 判据
+    module
+        .read_function_annotate(function)
+        .map(|e| {
+            let j = e.join(" ");
+            j.contains("+no_obf") || j.contains("no_obf=1") || j.contains("no_obf=true")
+        })
+        .unwrap_or(false)
 }
 
 /// 统一的日志：告诉读日志的人"这个函数为什么没被混淆"。

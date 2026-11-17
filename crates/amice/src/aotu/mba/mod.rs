@@ -43,9 +43,10 @@ impl AmicePass for Mba {
                 continue;
             }
 
-            // 段级排除（2026-11-18）：`.ncx` 是锁箱后的密文段，混淆只会
-            // 线性增加 APK 体积而收益为零。详见 aotu/obf_skip.rs 的完整数据。
-            if super::obf_skip::in_obf_skip_section(function) {
+            // 跳过混淆（2026-11-18）：段名判据（.ncx 密文段）+ annotate 判据
+            // （+no_obf，用于让 dex2c 产物留在 .text 而不留段名特征）。
+            // 数据与论证见 aotu/obf_skip.rs。
+            if super::obf_skip::should_skip(function, module) {
                 super::obf_skip::log_skip("Mba", function);
                 continue;
             }

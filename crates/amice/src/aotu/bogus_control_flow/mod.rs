@@ -61,6 +61,31 @@ impl AmicePass for BogusControlFlow {
             }) {
                 continue;
             }
+            // 跳过混淆（2026-11-18）：段名判据（.ncx 密文段）+ annotate 判据
+            // （+no_obf，dex2c 产物）+ VMP 目标（BCF 会改 CFG，与 VmVirtualize 冲突）。
+            // 详见 aotu/obf_skip.rs。
+            if super::obf_skip::should_skip(function, module) {
+                super::obf_skip::log_skip("BogusControlFlow", function);
+                continue;
+            }
+            if module
+                .read_function_annotate(function)
+                .map(|e| {
+                    let j = e.join(" ");
+                    j.contains("+vm_virtualize")
+                        || j.contains("+vmp")
+                        || j.contains("vm_virtualize=1")
+                        || j.contains("vm_virtualize=true")
+                })
+                .unwrap_or(false)
+            {
+                log::info!(
+                    "[amice] skip BogusControlFlow for VMP function: {:?}",
+                    function.get_name()
+                );
+                continue;
+            }
+
             let cfg = self.parse_function_annotations(module, function)?;
             if !cfg.enable {
                 continue;

@@ -1,6 +1,6 @@
 use crate::config::{Config, ParamAggregateConfig};
 use crate::pass_registry::{AmiceFunctionPass, AmicePass, AmicePassFlag};
-use amice_llvm::inkwell2::{BuilderExt, CallInst, FunctionExt, InstructionExt, LLVMValueRefExt, VerifyResult};
+use amice_llvm::inkwell2::{BuilderExt, CallInst, FunctionExt, InstructionExt, LLVMValueRefExt, ModuleExt, VerifyResult};
 use amice_macro::amice;
 use amice_plugin::PreservedAnalyses;
 use amice_plugin::inkwell::AddressSpace;

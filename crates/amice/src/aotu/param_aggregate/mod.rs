@@ -32,9 +32,34 @@ impl AmicePass for ParamAggregate {
     }
 
     fn do_pass(&self, module: &mut Module<'_>) -> anyhow::Result<PreservedAnalyses> {
+        // 先快照：循环内要 &mut 调 should_skip / read_function_annotate
+        let _all = module
+            .get_functions()
+            .into_iter()
+            .filter(|f| !f.is_undef_function() && !f.is_llvm_function() && !f.is_inline_marked())
+            .collect::<Vec<_>>();
+
         let mut functions = Vec::new();
-        for function in module.get_functions() {
-            if function.is_undef_function() || function.is_llvm_function() || function.is_inline_marked() {
+        for function in _all {
+            // 跳过混淆（2026-11-18）：段名判据（.ncx 密文段）+ annotate 判据
+            // （+no_obf，dex2c 产物）。参数聚合会改函数签名，与 VMP 的
+            // 「函数地址不被非调用用途引用」无冲突，但密文段和 dex2c 仍要跳过。
+            if super::obf_skip::should_skip(function, module) {
+                super::obf_skip::log_skip("ParamAggregate", function);
+                continue;
+            }
+            // VMP 目标跳过：参数聚合会改 ABI，VmVirtualize 按原签名生成
+            // wrapper，聚合后参数布局变了 → wrapper 取参错位 → 崩溃。
+            if module
+                .read_function_annotate(function)
+                .map(|e| {
+                    let j = e.join(" ");
+                    j.contains("+vm_virtualize") || j.contains("+vmp")
+                        || j.contains("vm_virtualize=1") || j.contains("vm_virtualize=true")
+                })
+                .unwrap_or(false)
+            {
+                log::info!("[amice] skip ParamAggregate for VMP function: {:?}", function.get_name());
                 continue;
             }
 
